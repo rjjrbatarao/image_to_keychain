@@ -1,0 +1,191 @@
+Architecture (CAD-style pipeline)
+
+Instead of directly extruding SVG, we structure it like a CAD kernel:
+
+IMAGE
+  ↓
+Potrace (vectorization)
+  ↓
+Sketch System (normalized curves)
+  ↓
+Parametric Model (constraints + dimensions)
+  ↓
+Solid Builder (extrusion + boolean ops)
+  ↓
+Mesh Output (Three.js / STL / GLB)
+📦 Core Concepts
+
+We define a parametric model object:
+
+const KeychainModel = {
+  thickness: 6,
+  border: 2,
+  holeRadius: 3,
+  holeOffsetY: 12,
+  scale: 1,
+  bevel: true,
+  smoothness: 2,
+};
+
+Everything rebuilds from this state.
+
+🧩 1. Potrace → Normalized Sketch Layer
+
+We convert SVG into a CAD sketch format.
+
+function svgToSketch(svgData) {
+  const paths = [];
+
+  svgData.paths.forEach(path => {
+    const shapes = THREE.SVGLoader.createShapes(path);
+
+    shapes.forEach(shape => {
+      paths.push({
+        points: shape.getPoints(64), // normalized resolution
+        holes: shape.holes.map(h => h.getPoints(32))
+      });
+    });
+  });
+
+  return paths;
+}
+🧠 2. Parametric Sketch Processor
+
+This is where CAD behavior starts.
+
+function applySketchConstraints(sketch, model) {
+  const scale = model.scale;
+
+  return sketch.map(p => {
+    return {
+      points: p.points.map(pt => ({
+        x: pt.x * scale,
+        y: pt.y * scale
+      })),
+      holes: p.holes
+    };
+  });
+}
+🧱 3. Solid Builder (True Parametric Extrusion)
+
+This replaces the simple extrude with controlled CAD logic:
+
+function buildSolid(sketch, model) {
+  const group = new THREE.Group();
+
+  const material = new THREE.MeshStandardMaterial({
+    color: 0x333333,
+    metalness: 0.2,
+    roughness: 0.6
+  });
+
+  sketch.forEach(path => {
+    const shape = new THREE.Shape();
+
+    path.points.forEach((p, i) => {
+      if (i === 0) shape.moveTo(p.x, p.y);
+      else shape.lineTo(p.x, p.y);
+    });
+
+    // Apply holes (keychain hole system)
+    const hole = new THREE.Path();
+    hole.absarc(
+      0,
+      model.holeOffsetY,
+      model.holeRadius,
+      0,
+      Math.PI * 2
+    );
+    shape.holes.push(hole);
+
+    const geometry = new THREE.ExtrudeGeometry(shape, {
+      depth: model.thickness,
+      bevelEnabled: model.bevel,
+      bevelThickness: model.border,
+      bevelSize: model.border,
+      bevelSegments: model.smoothness
+    });
+
+    const mesh = new THREE.Mesh(geometry, material);
+    group.add(mesh);
+  });
+
+  return group;
+}
+🔁 4. Full Rebuild System (CAD-style reactive model)
+
+This is what makes it “parametric CAD”.
+
+let currentModel = KeychainModel;
+let currentSketch = null;
+let currentMesh = null;
+
+function rebuild(svgData) {
+  if (currentMesh) scene.remove(currentMesh);
+
+  currentSketch = svgToSketch(svgData);
+  const constrained = applySketchConstraints(currentSketch, currentModel);
+
+  currentMesh = buildSolid(constrained, currentModel);
+  scene.add(currentMesh);
+}
+🎛️ 5. Live Parametric Controls (CAD UI)
+<div id="ui">
+  Thickness: <input id="t" type="range" min="2" max="20" value="6"><br>
+  Hole Radius: <input id="r" type="range" min="1" max="10" value="3"><br>
+  Scale: <input id="s" type="range" min="0.5" max="3" value="1">
+</div>
+function updateModel() {
+  currentModel.thickness = +t.value;
+  currentModel.holeRadius = +r.value;
+  currentModel.scale = +s.value;
+
+  if (lastSvg) rebuild(lastSvg);
+}
+t.oninput = updateModel;
+r.oninput = updateModel;
+s.oninput = updateModel;
+
+This is now fully parametric like CAD software.
+
+🧷 6. Proper Keychain Engineering Improvements
+✔ Auto-center geometry (CAD standard)
+function centerSketch(sketch) {
+  const box = new THREE.Box2();
+
+  sketch.forEach(p => {
+    p.points.forEach(pt => box.expandByPoint(pt));
+  });
+
+  const center = box.getCenter(new THREE.Vector2());
+
+  return sketch.map(p => ({
+    points: p.points.map(pt => ({
+      x: pt.x - center.x,
+      y: pt.y - center.y
+    })),
+    holes: p.holes
+  }));
+}
+✔ Edge cleanup (important for printing)
+function cleanupShape(shape) {
+  shape = THREE.ShapeUtils.simplify(shape);
+  return shape;
+}
+✔ Print-safe extrusion rules
+const PRINT_RULES = {
+  minThickness: 2,
+  minHoleRadius: 1.5,
+  maxBevel: 2
+};
+📤 7. CAD Export (STL / GLB)
+function exportSTL(scene) {
+  const exporter = new THREE.STLExporter();
+  const data = exporter.parse(scene);
+
+  const blob = new Blob([data], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "keychain_cad.stl";
+  a.click();
+}

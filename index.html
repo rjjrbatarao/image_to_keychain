@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>3D Keychain Generator</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    #upload { position: absolute; z-index: 10; }
+  </style>
+</head>
+<body>
+<input id="upload" type="file" />
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/loaders/SVGLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/exporters/STLExporter.js"></script>
+
+<script>
+let scene = new THREE.Scene();
+let camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
+let renderer = new THREE.WebGLRenderer({ antialias: true });
+
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+camera.position.z = 100;
+
+let mesh;
+
+function render() {
+  requestAnimationFrame(render);
+  if (mesh) mesh.rotation.y += 0.01;
+  renderer.render(scene, camera);
+}
+render();
+
+// Handle file upload → send to potrace
+document.getElementById("upload").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const res = await fetch("http://localhost:3000/trace", {
+    method: "POST",
+    body: formData
+  });
+
+  const { svg } = await res.json();
+  build3D(svg);
+});
+
+function build3D(svgText) {
+  // Clear old mesh
+  if (mesh) scene.remove(mesh);
+
+  const loader = new THREE.SVGLoader();
+  const svgData = loader.parse(svgText);
+
+  const group = new THREE.Group();
+
+  svgData.paths.forEach(path => {
+    const shapes = THREE.SVGLoader.createShapes(path);
+
+    shapes.forEach(shape => {
+      const geometry = new THREE.ExtrudeGeometry(shape, {
+        depth: 10,
+        bevelEnabled: true,
+        bevelThickness: 1,
+        bevelSize: 1,
+        bevelSegments: 2
+      });
+
+      const material = new THREE.MeshStandardMaterial({
+        color: 0x222222
+      });
+
+      const m = new THREE.Mesh(geometry, material);
+      group.add(m);
+    });
+  });
+
+  mesh = group;
+  scene.add(mesh);
+}
+
+// lights
+const light = new THREE.DirectionalLight(0xffffff, 1);
+light.position.set(50, 50, 50);
+scene.add(light);
+
+scene.add(new THREE.AmbientLight(0x666666));
+</script>
+</body>
+</html>

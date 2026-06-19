@@ -1,0 +1,213 @@
+1. DATA MODEL (Marketplace Core)
+User {
+  id,
+  name,
+  email,
+  passwordHash
+}
+Design {
+  id,
+  userId,
+  name,
+  svgSource,
+  paramModel,     // CAD parameters
+  geometryHash,
+  previewImage,
+  createdAt
+}
+Listing {
+  id,
+  designId,
+  price,
+  material,       // resin, PLA, metal
+  isPublic,
+  likes
+}
+Order {
+  id,
+  userId,
+  listingId,
+  stlFileUrl,
+  status,         // queued | printing | shipped
+  shippingAddress
+}
+🎨 2. FRONTEND (CAD + MARKETPLACE UI)
+Stack:
+React
+Three.js
+Zustand (state)
+Tailwind (UI)
+Potrace server API
+🧩 CAD Editor Component
+function Editor() {
+  const [model, setModel] = useState(defaultModel);
+  const [svg, setSvg] = useState(null);
+
+  async function uploadImage(file) {
+    const form = new FormData();
+    form.append("image", file);
+
+    const res = await fetch("/api/trace", {
+      method: "POST",
+      body: form
+    });
+
+    const data = await res.json();
+    setSvg(data.svg);
+  }
+
+  return (
+    <div className="grid grid-cols-2">
+      <Upload onChange={uploadImage} />
+      <ThreePreview svg={svg} model={model} />
+      <Controls model={model} setModel={setModel} />
+      <PublishButton svg={svg} model={model} />
+    </div>
+  );
+}
+🧠 3. PARAMETRIC CAD ENGINE (CORE)
+
+Same system you built, now wrapped as a service:
+
+function generateGeometry(svg, model) {
+  const sketch = svgToSketch(svg);
+  const centered = centerSketch(sketch);
+  const constrained = applySketchConstraints(centered, model);
+
+  return buildSolid(constrained, model);
+}
+🧷 4. PREVIEW + RENDER PIPELINE
+function ThreePreview({ svg, model }) {
+  const ref = useRef();
+
+  useEffect(() => {
+    if (!svg) return;
+
+    const scene = new THREE.Scene();
+    const mesh = generateGeometry(svg, model);
+
+    scene.add(mesh);
+
+    ref.current.scene = scene;
+  }, [svg, model]);
+
+  return <canvas ref={ref} />;
+}
+🖼️ 5. PREVIEW IMAGE GENERATION (Marketplace requirement)
+
+Used for listings.
+
+function renderPreview(mesh) {
+  const renderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true });
+  renderer.setSize(512, 512);
+
+  const scene = new THREE.Scene();
+  scene.add(mesh);
+
+  const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+  camera.position.z = 80;
+
+  renderer.render(scene, camera);
+
+  return renderer.domElement.toDataURL("image/png");
+}
+🚀 6. BACKEND API (Node.js Marketplace)
+Express server
+const express = require("express");
+const app = express();
+
+app.use(express.json());
+🧩 Potrace service
+app.post("/api/trace", upload.single("image"), (req, res) => {
+  potrace.trace(req.file.path, (err, svg) => {
+    if (err) return res.status(500).send(err);
+    res.json({ svg });
+  });
+});
+📤 Publish design (marketplace upload)
+app.post("/api/designs", async (req, res) => {
+  const { userId, name, svg, model } = req.body;
+
+  const geometry = generateGeometry(svg, model);
+  const preview = renderPreview(geometry);
+
+  const design = await db.design.create({
+    userId,
+    name,
+    svgSource: svg,
+    paramModel: model,
+    previewImage: preview
+  });
+
+  res.json(design);
+});
+🛒 Create listing
+app.post("/api/listings", async (req, res) => {
+  const { designId, price } = req.body;
+
+  const listing = await db.listing.create({
+    designId,
+    price,
+    isPublic: true
+  });
+
+  res.json(listing);
+});
+🖨️ 7. PRINT PIPELINE (Shapeways-style backend)
+
+This is the key upgrade.
+
+STL generation + queue
+app.post("/api/order", async (req, res) => {
+  const { listingId } = req.body;
+
+  const listing = await db.listing.find(listingId);
+  const design = await db.design.find(listing.designId);
+
+  const mesh = generateGeometry(design.svgSource, design.paramModel);
+
+  const stl = new THREE.STLExporter().parse(mesh);
+
+  const fileUrl = await uploadToStorage(stl);
+
+  const order = await db.order.create({
+    listingId,
+    stlFileUrl: fileUrl,
+    status: "queued"
+  });
+
+  enqueuePrint(order.id);
+
+  res.json(order);
+});
+⚙️ 8. PRINT VALIDATION (CRITICAL FOR REAL WORLD)
+
+Before printing:
+
+function validateMesh(mesh) {
+  return {
+    watertight: checkManifold(mesh),
+    minThickness: checkMinWall(mesh, 2),
+    holeSafe: checkKeychainHole(mesh),
+    scaleValid: mesh.size < 100
+  };
+}
+🧠 9. MARKETPLACE FEATURES (like Shapeways)
+🧷 Social layer
+likes
+remix designs
+trending keychains
+💰 Monetization
+designer profit split (e.g. 70%)
+manufacturing fee
+premium materials
+🏷️ Materials
+PLA (cheap)
+Resin (detailed)
+Metal (premium prints)
+🧩 10. UI STRUCTURE (REAL PRODUCT FEEL)
+/editor        → CAD design tool
+/explore       → marketplace feed
+/design/:id    → product page
+/profile       → user designs
+/orders        → print tracking

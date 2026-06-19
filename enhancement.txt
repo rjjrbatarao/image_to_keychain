@@ -1,0 +1,22 @@
+Modify extrusion step:
+const hole = new THREE.Shape();
+hole.absarc(0, 40, 5, 0, Math.PI * 2, false);
+shape.holes.push(hole);
+
+
+Or add after mesh creation:
+const holeGeo = new THREE.CylinderGeometry(3, 3, 20);
+holeGeo.rotateX(Math.PI / 2);
+holeGeo.translate(0, 40, 5);
+
+
+Optional: Export STL for 3D printing
+
+const exporter = new THREE.STLExporter();
+const stlString = exporter.parse(scene);
+
+const blob = new Blob([stlString], { type: "text/plain" });
+const link = document.createElement("a");
+link.href = URL.createObjectURL(blob);
+link.download = "keychain.stl";
+link.click();
