@@ -15,4 +15,5 @@ https://github.com/czM1K3/keychain-generator
 https://github.com/javierbyte/basic-stl-generator
 https://github.com/jonathanwalker/kachracraft
 https://github.com/klevron/threejs-toys
+https://github.com/dogmandcl/ThreejsWizard
 ```
