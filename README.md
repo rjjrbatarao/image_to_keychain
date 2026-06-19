@@ -16,4 +16,7 @@ https://github.com/javierbyte/basic-stl-generator
 https://github.com/jonathanwalker/kachracraft
 https://github.com/klevron/threejs-toys
 https://github.com/dogmandcl/ThreejsWizard
+
+https://github.com/playcanvas/react
+https://github.com/Pavelruh/ImageToSTLConverter
 ```
