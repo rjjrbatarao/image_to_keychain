@@ -1,0 +1,174 @@
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { SVGLoader } from 'three/addons/loaders/SVGLoader.js';
+
+// --- Scene Initialization ---
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a1a);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 1000);
+camera.position.set(0, 0, 150);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+container.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+// --- Lighting Architecture ---
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+scene.add(ambientLight);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(50, 80, 100);
+dirLight.castShadow = true;
+scene.add(dirLight);
+
+// Group to hold all generated components for easy centering
+const keychainGroup = new THREE.Group();
+scene.add(keychainGroup);
+
+// --- Sample Base SVG Data ---
+// A simple star vector shape to act as the primary graphic input
+const sampleSVG = `<svg viewBox="0 0 100 100" xmlns="http://w3.org">
+    <path d="M50,15 L61,38 L86,38 L66,53 L74,77 L50,62 L26,77 L34,53 L14,38 L39,38 Z" fill="#ff2a6d"/>
+</svg>`;
+
+// --- Core Generation Pipeline ---
+function generateKeychain(svgText) {
+    // Clear previous geometries
+    while(keychainGroup.children.length > 0){ 
+        keychainGroup.remove(keychainGroup.children[0]); 
+    }
+
+    const loader = new SVGLoader();
+    const svgData = loader.parse(svgText); // Parse text directly
+    
+    const materialSVG = new THREE.MeshStandardMaterial({
+        color: 0xff2a6d,
+        roughness: 0.3,
+        metalness: 0.1
+    });
+
+    const paths = svgData.paths;
+
+    // 1. Process and Extrude SVG Art
+    paths.forEach((path) => {
+        const shapes = SVGLoader.createShapes(path); // Convert vectors to shapes
+        
+        shapes.forEach((shape) => {
+            const extrudeSettings = {
+                depth: 4,               // Thickness of the extruded artwork (mm)
+                bevelEnabled: true,
+                bevelThickness: 0.4,
+                bevelSize: 0.2,
+                bevelSegments: 3
+            };
+            
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            const mesh = new THREE.Mesh(geometry, materialSVG);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            keychainGroup.add(mesh);
+        });
+    });
+
+    // 2. Compute Bounding Properties for the Base Backing Plate
+    const box = new THREE.Box3().setFromObject(keychainGroup);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+
+    // 3. Generate the Custom Backing Plate Shape
+    const padding = 6;
+    const baseWidth = size.x + (padding * 2);
+    const baseHeight = size.y + (padding * 2);
+    const baseThickness = 3; // Thickness of the plastic/acrylic plate
+    
+    // Draw the backing plate shape using 2D paths
+    const baseShape = new THREE.Shape();
+    const radius = 4; // Rounded corner radius
+    
+    // Draw rounded rectangle manually to allow a solid mathematical hole insertion
+    const x = -baseWidth / 2;
+    const y = -baseHeight / 2;
+    
+    baseShape.moveTo(x + radius, y);
+    baseShape.lineTo(x + baseWidth - radius, y);
+    baseShape.quadraticCurveTo(x + baseWidth, y, x + baseWidth, y + radius);
+    baseShape.lineTo(x + baseWidth, y + baseHeight - radius);
+    baseShape.quadraticCurveTo(x + baseWidth, y + baseHeight, x + baseWidth - radius, y + baseHeight);
+    
+    // Top Edge / Area where the loop attachment goes
+    baseShape.lineTo(x + radius, y + baseHeight);
+    baseShape.quadraticCurveTo(x, y + baseHeight, x, y + baseHeight - radius);
+    baseShape.lineTo(x, y + radius);
+    baseShape.quadraticCurveTo(x, y, x + radius, y);
+
+    // 4. Punch the Hole for the Keychain Split-Ring
+    // Holes are defined by adding inverted shapes directly to the base path `.holes` array
+    const holePath = new THREE.Path();
+    const holeRadius = 3.5; // Optimized clearance for keyrings
+    // Place loop at the top center of the generated backing geometry
+    holePath.absarc(0, (baseHeight / 2) - padding, holeRadius, 0, Math.PI * 2, true);
+    baseShape.holes.push(holePath);
+
+    // Extrude the finished structural base plate
+    const baseExtrudeSettings = {
+        depth: baseThickness,
+        bevelEnabled: true,
+        bevelThickness: 0.5,
+        bevelSize: 0.3,
+        bevelSegments: 2
+    };
+
+    const baseGeometry = new THREE.ExtrudeGeometry(baseShape, baseExtrudeSettings);
+    const baseMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0x05d9e8,
+        roughness: 0.4,
+        metalness: 0.1
+    });
+    
+    const baseMesh = new THREE.Mesh(baseGeometry, baseMaterial);
+    baseMesh.receiveShadow = true;
+    baseMesh.castShadow = true;
+
+    // Adjust Z position so artwork rests perfectly on top of the base plate
+    baseMesh.position.z = -baseThickness;
+
+    // Normalizing SVG coordinates to center inside our 3D space
+    // SVGLoader maps 0,0 to the top left; we offset back to the center computed origin
+    keychainGroup.children.forEach(child => {
+        child.position.x -= center.x;
+        // Invert Y axes because SVG and WebGL handle vertical orientation inversely
+        child.position.y = -(child.position.y - center.y); 
+    });
+
+    keychainGroup.add(baseMesh);
+}
+
+// Execute pipeline
+generateKeychain(sampleSVG);
+
+// --- Animation Loop ---
+function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, RepublicOfCode);
+}
+// Hot fix for scene render reference loop
+function RepublicOfCode() {
+    renderer.render(scene, camera);
+}
+animate();
+
+// --- Responsive Window Resizing ---
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
